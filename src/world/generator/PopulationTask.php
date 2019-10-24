@@ -23,10 +23,13 @@ declare(strict_types=1);
 
 namespace pocketmine\world\generator;
 
-use pocketmine\block\BlockFactory;
 use pocketmine\scheduler\AsyncTask;
 use pocketmine\world\format\Chunk;
 use pocketmine\world\format\io\FastChunkSerializer;
+use pocketmine\world\light\BlockLightUpdate;
+use pocketmine\world\light\LightUpdate;
+use pocketmine\world\light\SkyLightUpdate;
+use pocketmine\world\SimpleChunkManager;
 use pocketmine\world\World;
 
 class PopulationTask extends AsyncTask{
@@ -118,9 +121,19 @@ class PopulationTask extends AsyncTask{
 		$chunk = $manager->getChunk($chunk->getX(), $chunk->getZ());
 		$chunk->setPopulated();
 
-		$blockFactory = BlockFactory::getInstance();
-		$chunk->recalculateHeightMap($blockFactory->lightFilter, $blockFactory->diffusesSkyLight);
-		$chunk->populateSkyLight($blockFactory->lightFilter);
+		//TODO: this is intended to avoid populating light in partially-generated chunks, but this hack shouldn't be needed
+		$isolatedManager = new SimpleChunkManager();
+		$isolatedManager->setChunk($chunk->getX(), $chunk->getZ(), $chunk);
+
+		/** @var LightUpdate[] $lightUpdates */
+		$lightUpdates = [
+			new BlockLightUpdate($isolatedManager),
+			new SkyLightUpdate($isolatedManager)
+		];
+		foreach($lightUpdates as $lightUpdate){
+			$lightUpdate->recalculateChunk($chunk->getX(), $chunk->getZ());
+			$lightUpdate->execute();
+		}
 		$chunk->setLightPopulated();
 
 		$this->chunk = FastChunkSerializer::serialize($chunk);
